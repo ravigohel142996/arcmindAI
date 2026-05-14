@@ -4,11 +4,15 @@ import {
   streamGeminiWithFallback,
 } from "@/app/(protected)/generate/utils/aiClient";
 import { SystemPrompt } from "@/lib/prompts/promptTemplate";
-import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import {
+  AIMessageChunk,
+  HumanMessage,
+  SystemMessage,
+} from "@langchain/core/messages";
 import { db } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { generationRateLimit } from "@/lib/rateLimit";
-import { getUserApiKeys } from "@/lib/api-keys/getUserApiKeys";
+import { getUserApiKeys, type UserApiKeys } from "@/lib/api-keys/getUserApiKeys";
 import {
   aiGenerationRequestsTotal,
   aiGenerationSuccessTotal,
@@ -26,6 +30,13 @@ import {
 type ParsedOutput = {
   finalAIresponse: string;
   parsedData: Prisma.InputJsonValue;
+};
+
+const STREAM_TEST_USER_ID = "__stream_test__";
+
+type GenerateRequestBody = {
+  userInput: string;
+  userId?: string;
 };
 
 function isJsonObject(
@@ -107,6 +118,29 @@ function parseAIOutput(cleanedOutput: string): ParsedOutput {
   };
 }
 
+async function* createMockLangChainStream(
+  _userInput: string,
+): AsyncGenerator<AIMessageChunk> {
+  const mockOutput = `\`\`\`json
+{
+  "systemName": "Streaming Test System",
+  "summary": "Simulated progressive response for stream test mode",
+  "microservices": [],
+  "entities": [],
+  "apiRoutes": [],
+  "databaseSchema": [],
+  "infrastructure": []
+}
+\`\`\``;
+
+  const chunkSize = 18;
+  for (let i = 0; i < mockOutput.length; i += chunkSize) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    const slice = mockOutput.slice(i, i + chunkSize);
+    yield new AIMessageChunk({ content: slice });
+  }
+}
+
 export async function POST(req: NextRequest) {
   const startTime = Date.now();
   const route = "/api/generate";
@@ -127,12 +161,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { userInput, userId } = body as {
-      userInput: string;
-      userId?: string;
-    };
+    const { userInput, userId } = body as GenerateRequestBody;
+    const isStreamTestModeEnabled = process.env.ENABLE_STREAM_TEST_MODE === "true";
+    const enableStreamingTestMode =
+      isStreamTestModeEnabled &&
+      process.env.NODE_ENV !== "production" &&
+      req.headers.get("x-stream-test-mode")?.trim() === "1";
+    const effectiveUserId = userId ?? STREAM_TEST_USER_ID;
 
-    if (!userId) {
+    if (!enableStreamingTestMode && !userId) {
       apiGatewayErrorsTotal.inc({ status_code: "400" });
       httpRequestDurationSeconds.observe(
         { route },
@@ -156,97 +193,108 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const userFindStart = Date.now();
-    const user = await db.user.findFirst({
-      where: {
-        id: userId,
-      },
-    });
-    databaseQueryDurationSeconds.observe(
-      { operation: "findFirst" },
-      (Date.now() - userFindStart) / 1000,
-    );
+    let limit: number | undefined;
+    let remaining: number | undefined;
+    let reset: number | undefined;
+    let userApiKeys: UserApiKeys = {};
 
-    if (!user) {
-      apiGatewayErrorsTotal.inc({ status_code: "404" });
-      httpRequestDurationSeconds.observe(
-        { route },
-        (Date.now() - startTime) / 1000,
-      );
-      return NextResponse.json(
-        { status: 404, message: "User not Found" },
-        { status: 404 },
-      );
-    }
-
-    if (user.isVerified === false) {
-      apiGatewayErrorsTotal.inc({ status_code: "401" });
-      httpRequestDurationSeconds.observe(
-        { route },
-        (Date.now() - startTime) / 1000,
-      );
-      return NextResponse.json(
-        {
-          status: 401,
-          message: "Email is not verified",
+    if (!enableStreamingTestMode) {
+      const userFindStart = Date.now();
+      const user = await db.user.findFirst({
+        where: {
+          id: userId,
         },
-        { status: 401 },
+      });
+      databaseQueryDurationSeconds.observe(
+        { operation: "findFirst" },
+        (Date.now() - userFindStart) / 1000,
       );
-    }
 
-    const generationCount = await db.generation.count({
-      where: { userId },
-    });
+      if (!user) {
+        apiGatewayErrorsTotal.inc({ status_code: "404" });
+        httpRequestDurationSeconds.observe(
+          { route },
+          (Date.now() - startTime) / 1000,
+        );
+        return NextResponse.json(
+          { status: 404, message: "User not Found" },
+          { status: 404 },
+        );
+      }
 
-    const planLimits = {
-      free: 10,
-      pro: 200,
-      enterprise: 9999,
-    };
+      if (user.isVerified === false) {
+        apiGatewayErrorsTotal.inc({ status_code: "401" });
+        httpRequestDurationSeconds.observe(
+          { route },
+          (Date.now() - startTime) / 1000,
+        );
+        return NextResponse.json(
+          {
+            status: 401,
+            message: "Email is not verified",
+          },
+          { status: 401 },
+        );
+      }
 
-    const plan = user.plan as keyof typeof planLimits | undefined;
-    const userLimit = plan ? planLimits[plan] : undefined;
+      const generationCount = await db.generation.count({
+        where: { userId },
+      });
 
-    if (userLimit !== undefined && generationCount >= userLimit) {
-      apiGatewayErrorsTotal.inc({ status_code: "403" });
-      httpRequestDurationSeconds.observe(
-        { route },
-        (Date.now() - startTime) / 1000,
-      );
-      return NextResponse.json(
-        {
-          error: `You have reached your limit of ${userLimit} generations for the ${user.plan} plan.`,
-          upgrade: user.plan === "free",
-        },
-        { status: 403 },
-      );
-    }
+      const planLimits = {
+        free: 10,
+        pro: 200,
+        enterprise: 9999,
+      };
 
-    const { success, limit, remaining, reset } =
-      await generationRateLimit.limit(userId);
-    if (!success) {
-      apiGatewayErrorsTotal.inc({ status_code: "429" });
-      httpRequestDurationSeconds.observe(
-        { route },
-        (Date.now() - startTime) / 1000,
-      );
-      return NextResponse.json(
-        {
-          error:
-            "Rate limit exceeded. Please wait 2 minutes before making another request.",
-        },
-        { status: 429 },
-      );
+      const plan = user.plan as keyof typeof planLimits | undefined;
+      const userLimit = plan ? planLimits[plan] : undefined;
+
+      if (userLimit !== undefined && generationCount >= userLimit) {
+        apiGatewayErrorsTotal.inc({ status_code: "403" });
+        httpRequestDurationSeconds.observe(
+          { route },
+          (Date.now() - startTime) / 1000,
+        );
+        return NextResponse.json(
+          {
+            error: `You have reached your limit of ${userLimit} generations for the ${user.plan} plan.`,
+            upgrade: user.plan === "free",
+          },
+          { status: 403 },
+        );
+      }
+
+      const rateLimitResult = await generationRateLimit.limit(userId!);
+      if (!rateLimitResult.success) {
+        apiGatewayErrorsTotal.inc({ status_code: "429" });
+        httpRequestDurationSeconds.observe(
+          { route },
+          (Date.now() - startTime) / 1000,
+        );
+        return NextResponse.json(
+          {
+            error:
+              "Rate limit exceeded. Please wait 2 minutes before making another request.",
+          },
+          { status: 429 },
+        );
+      }
+
+      limit = rateLimitResult.limit;
+      remaining = rateLimitResult.remaining;
+      reset = rateLimitResult.reset;
+
+      userApiKeys = await getUserApiKeys(userId!);
     }
 
     aiGenerationRequestsTotal.inc();
-    userLastActivityTimestamp.set({ user_id: userId }, Date.now() / 1000);
+    userLastActivityTimestamp.set({ user_id: effectiveUserId }, Date.now() / 1000);
 
     const messages = [
       new SystemMessage(SystemPrompt),
       new HumanMessage(userInput),
     ];
-    const userApiKeys = await getUserApiKeys(userId);
 
     const encoder = new TextEncoder();
 
@@ -277,10 +325,16 @@ export async function POST(req: NextRequest) {
           try {
             sendEvent("start", { success: true });
 
-            const { stream: aiStream } = await streamGeminiWithFallback(
-              messages,
-              userApiKeys.geminiApiKey,
-            );
+            const shouldUseMockStream =
+              enableStreamingTestMode &&
+              !userApiKeys.geminiApiKey &&
+              !process.env.GEMINI_API_KEY &&
+              !process.env.GEMINI_API_KEY_UNSECURED;
+
+            const aiStream = shouldUseMockStream
+              ? createMockLangChainStream(userInput)
+              : (await streamGeminiWithFallback(messages, userApiKeys.geminiApiKey))
+                  .stream;
 
             let fullResponse = "";
 
@@ -301,30 +355,35 @@ export async function POST(req: NextRequest) {
 
             const { finalAIresponse, parsedData } = parseAIOutput(fullResponse);
 
-            const createGenerationStart = Date.now();
-            await db.generation.create({
-              data: {
-                userInput,
-                generatedOutput: parsedData,
-                userId,
-              },
-            });
-            databaseQueryDurationSeconds.observe(
-              { operation: "create" },
-              (Date.now() - createGenerationStart) / 1000,
-            );
+            if (!enableStreamingTestMode && userId) {
+              const createGenerationStart = Date.now();
+              await db.generation.create({
+                data: {
+                  userInput,
+                  generatedOutput: parsedData,
+                  userId,
+                },
+              });
+              databaseQueryDurationSeconds.observe(
+                { operation: "create" },
+                (Date.now() - createGenerationStart) / 1000,
+              );
+            }
 
             aiGenerationSuccessTotal.inc();
-            userGenerationsTotal.inc({ user_id: userId });
-            userLastActivityTimestamp.set({ user_id: userId }, Date.now() / 1000);
+            userGenerationsTotal.inc({ user_id: effectiveUserId });
+            userLastActivityTimestamp.set(
+              { user_id: effectiveUserId },
+              Date.now() / 1000,
+            );
             aiGenerationOutputSizeBytes.set(JSON.stringify(parsedData).length);
 
             sendEvent("done", {
               success: true,
               output: finalAIresponse,
-              limit,
-              remaining,
-              reset,
+              ...(limit !== undefined ? { limit } : {}),
+              ...(remaining !== undefined ? { remaining } : {}),
+              ...(reset !== undefined ? { reset } : {}),
             });
           } catch (error: unknown) {
             aiGenerationFailureTotal.inc();
