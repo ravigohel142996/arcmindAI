@@ -281,8 +281,6 @@ export async function POST(req: NextRequest) {
 
             for await (const chunk of aiStream) {
               if (req.signal.aborted) {
-                onAbort();
-                closeStream();
                 return;
               }
 

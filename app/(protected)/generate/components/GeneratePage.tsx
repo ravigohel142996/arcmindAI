@@ -117,7 +117,11 @@ export default function GeneratePage() {
         setGeneratedData(null);
       }
     } else {
-      setError(generateError || "Generation failed");
+      if (generateError) {
+        setError(generateError);
+      } else {
+        setError("Generation failed");
+      }
       setGeneratedData(null);
     }
   };

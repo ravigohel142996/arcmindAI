@@ -145,7 +145,7 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
         }
       }
 
-      buffer += decoder.decode();
+      buffer += decoder.decode(new Uint8Array(), { stream: false });
 
       if (finalResult?.success && refetchHistory) {
         await refetchHistory();
