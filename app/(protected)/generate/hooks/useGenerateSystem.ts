@@ -13,7 +13,21 @@ type SSEEventPayload = {
   output?: string;
   error?: string;
   status?: number;
+  message?: string;
 };
+
+type ErrorBody = {
+  error?: string;
+  message?: string;
+};
+
+function isErrorBody(value: unknown): value is ErrorBody {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    ("error" in value || "message" in value)
+  );
+}
 
 export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
   const { data: session } = useSession();
@@ -92,9 +106,8 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
       });
 
       if (!response.ok) {
-        const errorBody = (await response.json().catch(() => null)) as
-          | { error?: string; message?: string }
-          | null;
+        const parsedErrorBody = await response.json().catch(() => null);
+        const errorBody = isErrorBody(parsedErrorBody) ? parsedErrorBody : null;
         const message =
           errorBody?.error ||
           errorBody?.message ||
@@ -137,6 +150,11 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
               success: true,
               output: payload.output,
             };
+          } else if (event === "abort") {
+            throw new DOMException(
+              payload.message || "Generation was cancelled.",
+              "AbortError",
+            );
           } else if (event === "error") {
             throw new Error(payload.error || "Failed to stream AI response.");
           }

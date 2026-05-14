@@ -28,6 +28,12 @@ type ParsedOutput = {
   parsedData: Prisma.InputJsonValue;
 };
 
+function isJsonObject(
+  value: Prisma.InputJsonValue,
+): value is Record<string, Prisma.InputJsonValue> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function createSSEEvent(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
@@ -89,9 +95,8 @@ function parseAIOutput(cleanedOutput: string): ParsedOutput {
       .trim();
 
     if (mermaidText) {
-      if (typeof parsedData === "object" && parsedData !== null) {
-        (parsedData as Record<string, unknown>)["Architecture Diagram"] =
-          mermaidText;
+      if (isJsonObject(parsedData)) {
+        parsedData["Architecture Diagram"] = mermaidText;
       }
     }
   }
@@ -372,7 +377,10 @@ export async function POST(req: NextRequest) {
           }
         };
 
-        void run();
+        run().catch((unhandledError) => {
+          console.error("Unhandled stream execution error:", unhandledError);
+          closeStream();
+        });
       },
       cancel() {
         // Readable stream cancellation is expected when clients disconnect.
