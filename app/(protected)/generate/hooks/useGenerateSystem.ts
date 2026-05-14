@@ -50,17 +50,17 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
   const parseSSEMessage = (rawEvent: string) => {
     const lines = rawEvent.split(/\r?\n/);
     let event = "message";
-    let data = "";
+    const dataLines: string[] = [];
 
     for (const line of lines) {
       if (line.startsWith("event:")) {
         event = line.slice(6).trim();
       } else if (line.startsWith("data:")) {
-        data += `${line.slice(5).trim()}\n`;
+        dataLines.push(line.slice(5).replace(/^ /, ""));
       }
     }
 
-    const normalizedData = data.trim();
+    const normalizedData = dataLines.join("\n");
     if (!normalizedData) return null;
 
     let payload: SSEEventPayload;
@@ -128,10 +128,7 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) {
-          buffer += decoder.decode();
-          break;
-        }
+        if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
 

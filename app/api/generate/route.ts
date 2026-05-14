@@ -32,6 +32,8 @@ type ParsedOutput = {
   parsedData: Prisma.InputJsonValue;
 };
 
+const STREAM_TEST_USER_ID = "__stream_test__";
+
 type GenerateRequestBody = {
   userInput: string;
   userId?: string;
@@ -161,11 +163,13 @@ export async function POST(req: NextRequest) {
     }
 
     const { userInput, userId, streamTestMode } = body as GenerateRequestBody;
+    const isStreamTestModeEnabled = process.env.ENABLE_STREAM_TEST_MODE === "true";
     const enableStreamingTestMode =
+      isStreamTestModeEnabled &&
       process.env.NODE_ENV !== "production" &&
       (streamTestMode === true ||
         req.headers.get("x-stream-test-mode")?.trim() === "1");
-    const effectiveUserId = userId ?? "stream-test-user";
+    const effectiveUserId = userId ?? STREAM_TEST_USER_ID;
 
     if (!enableStreamingTestMode && !userId) {
       apiGatewayErrorsTotal.inc({ status_code: "400" });
