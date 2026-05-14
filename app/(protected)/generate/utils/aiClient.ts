@@ -237,15 +237,6 @@ export function getTextFromAIChunk(chunk: AIMessageChunk): string {
       .join("");
   }
 
-  if (
-    typeof content === "object" &&
-    content !== null &&
-    "text" in content &&
-    typeof content.text === "string"
-  ) {
-    return content.text;
-  }
-
   return "";
 }
 

@@ -6,6 +6,7 @@ import {
 import { SystemPrompt } from "@/lib/prompts/promptTemplate";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { db } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { generationRateLimit } from "@/lib/rateLimit";
 import { getUserApiKeys } from "@/lib/api-keys/getUserApiKeys";
 import {
@@ -24,7 +25,7 @@ import {
 
 type ParsedOutput = {
   finalAIresponse: string;
-  parsedData: Record<string, unknown>;
+  parsedData: Prisma.InputJsonValue;
 };
 
 function createSSEEvent(event: string, data: unknown): string {
@@ -67,7 +68,7 @@ function parseAIOutput(cleanedOutput: string): ParsedOutput {
   jsonText = jsonText.trim();
   if (!jsonText) throw new Error("No JSON content found in AI response.");
 
-  const parsedData = JSON.parse(jsonText) as Record<string, unknown>;
+  const parsedData = JSON.parse(jsonText) as Prisma.InputJsonValue;
 
   const mermaidStartMarker = "```mermaid";
   const mermaidStart = cleanedOutput.indexOf(mermaidStartMarker);
@@ -88,7 +89,10 @@ function parseAIOutput(cleanedOutput: string): ParsedOutput {
       .trim();
 
     if (mermaidText) {
-      parsedData["Architecture Diagram"] = mermaidText;
+      if (typeof parsedData === "object" && parsedData !== null) {
+        (parsedData as Record<string, unknown>)["Architecture Diagram"] =
+          mermaidText;
+      }
     }
   }
 
