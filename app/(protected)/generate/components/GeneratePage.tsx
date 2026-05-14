@@ -20,6 +20,8 @@ export default function GeneratePage() {
   const { refetch } = useHistory();
   const {
     generate,
+    stopGeneration,
+    streamedOutput,
     isLoading,
     error: generateError,
   } = useGenerateSystem(refetch);
@@ -48,6 +50,9 @@ export default function GeneratePage() {
   }
 
   const handleGenerate = async () => {
+    setError(null);
+    setGeneratedData(null);
+
     const result = await generate(userInput);
     if (result && result.success) {
       try {
@@ -112,7 +117,7 @@ export default function GeneratePage() {
         setGeneratedData(null);
       }
     } else {
-      setError(generateError);
+      setError(generateError || "Generation failed");
       setGeneratedData(null);
     }
   };
@@ -132,23 +137,40 @@ export default function GeneratePage() {
         >
           {isLoading ? "Generating..." : "Generate System"}
         </Button>
+        {isLoading && (
+          <Button variant="outline" onClick={stopGeneration}>
+            Stop
+          </Button>
+        )}
       </div>
 
-      {error && (
+      {(error || generateError) && (
         <Card className="border-red-200 bg-red-50">
           <CardContent className="pt-4">
-            <p className="text-red-800">Error: {error}</p>
+            <p className="text-red-800">Error: {error || generateError}</p>
           </CardContent>
         </Card>
       )}
 
       {isLoading && (
-        <div className="flex justify-center items-center min-h-[400px]">
-          <Lottie
-            animationData={animationData}
-            loop={true}
-            style={{ width: 400, height: 400 }}
-          />
+        <div className="space-y-4">
+          <div className="flex justify-center items-center">
+            <Lottie
+              animationData={animationData}
+              loop={true}
+              style={{ width: 220, height: 220 }}
+            />
+          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Live AI Output</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <pre className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                {streamedOutput || "Generating response..."}
+              </pre>
+            </CardContent>
+          </Card>
         </div>
       )}
 

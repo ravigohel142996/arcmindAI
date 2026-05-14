@@ -1,6 +1,6 @@
 // src/app/generate/utils/aiClient.ts
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { BaseMessage } from "@langchain/core/messages";
+import { AIMessageChunk, BaseMessage } from "@langchain/core/messages";
 // import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 
 // ✅ Core Gemini LLM setup (LangChain compatible)
@@ -77,6 +77,12 @@ export type FallbackResult = {
   allKeysFailed: boolean;
 };
 
+export type StreamFallbackResult = {
+  stream: Awaited<ReturnType<typeof geminiLLM.stream>>;
+  usedUserKey: boolean;
+  allKeysFailed: boolean;
+};
+
 /**
  * Invokes the Gemini LLM with automatic three-tier fallback:
  * 1. User's personal API key (if provided)
@@ -144,6 +150,103 @@ export async function invokeGeminiWithFallback(
     // If it's not a fallback-worthy error, throw it as-is
     throw error;
   }
+}
+
+/**
+ * Streams from Gemini with automatic three-tier fallback:
+ * 1. User's personal API key (if provided)
+ * 2. System API key 1 (GEMINI_API_KEY)
+ * 3. System API key 2 (GEMINI_API_KEY_UNSECURED)
+ */
+export async function streamGeminiWithFallback(
+  messages: BaseMessage[],
+  userApiKey?: string,
+): Promise<StreamFallbackResult> {
+  let usedUserKey = false;
+  let allKeysFailed = false;
+
+  // Tier 1: Try user's personal API key first (if provided)
+  if (userApiKey) {
+    try {
+      console.log("Attempting Gemini stream with user's personal API key");
+      const userClient = createGeminiClient(userApiKey);
+      const stream = await userClient.stream(messages);
+      usedUserKey = true;
+      return { stream, usedUserKey, allKeysFailed };
+    } catch (error) {
+      console.warn(
+        "User's Gemini API key stream failed, falling back to system keys:",
+        error,
+      );
+      // Continue to system keys
+    }
+  }
+
+  // Tier 2: Try primary system API key
+  try {
+    console.log("Attempting Gemini stream with primary system API key");
+    const stream = await geminiLLM.stream(messages);
+    return { stream, usedUserKey, allKeysFailed };
+  } catch (error) {
+    // Check if we should fallback
+    if (shouldFallback(error)) {
+      console.warn(
+        "Primary Gemini stream failed, falling back to secondary API key:",
+        error,
+      );
+
+      // Tier 3: Try secondary system API key
+      try {
+        console.log("Attempting Gemini stream with secondary system API key");
+        const stream = await geminiLLM_2.stream(messages);
+        return { stream, usedUserKey, allKeysFailed };
+      } catch (fallbackError) {
+        console.error("All Gemini API keys failed for stream:", {
+          primary: error,
+          fallback: fallbackError,
+        });
+        allKeysFailed = true;
+        // Re-throw the original error
+        throw error;
+      }
+    }
+    // If it's not a fallback-worthy error, throw it as-is
+    throw error;
+  }
+}
+
+export function getTextFromAIChunk(chunk: AIMessageChunk): string {
+  const { content } = chunk;
+
+  if (typeof content === "string") return content;
+
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (
+          typeof part === "object" &&
+          part !== null &&
+          "text" in part &&
+          typeof part.text === "string"
+        ) {
+          return part.text;
+        }
+        return "";
+      })
+      .join("");
+  }
+
+  if (
+    typeof content === "object" &&
+    content !== null &&
+    "text" in content &&
+    typeof content.text === "string"
+  ) {
+    return content.text;
+  }
+
+  return "";
 }
 
 // Export the LLMs for direct use if needed (not recommended)
