@@ -14,6 +14,10 @@ import { Prisma } from "@prisma/client";
 import { generationRateLimit } from "@/lib/rateLimit";
 import { getUserApiKeys, type UserApiKeys } from "@/lib/api-keys/getUserApiKeys";
 import {
+  DEV_BYPASS_USER,
+  isDevelopmentAuthBypassEnabled,
+} from "@/lib/auth/devBypass";
+import {
   aiGenerationRequestsTotal,
   aiGenerationSuccessTotal,
   aiGenerationFailureTotal,
@@ -38,6 +42,29 @@ type GenerateRequestBody = {
   userInput: string;
   userId?: string;
 };
+
+async function getOrCreateLocalDevBypassUserId(): Promise<string> {
+  // TEMPORARY LOCAL DEVELOPMENT AUTH BYPASS:
+  // This creates/uses a mock local user so /generate can be tested in development
+  // without real signup/login OAuth configuration.
+  const user = await db.user.upsert({
+    where: { email: DEV_BYPASS_USER.email },
+    update: {
+      username: DEV_BYPASS_USER.username,
+      isVerified: true,
+    },
+    create: {
+      email: DEV_BYPASS_USER.email,
+      username: DEV_BYPASS_USER.username,
+      password: DEV_BYPASS_USER.password,
+      isVerified: true,
+      plan: "enterprise",
+    },
+    select: { id: true },
+  });
+
+  return user.id;
+}
 
 function isJsonObject(
   value: Prisma.InputJsonValue,
@@ -167,9 +194,16 @@ export async function POST(req: NextRequest) {
       isStreamTestModeEnabled &&
       process.env.NODE_ENV !== "production" &&
       req.headers.get("x-stream-test-mode")?.trim() === "1";
-    const effectiveUserId = userId ?? STREAM_TEST_USER_ID;
+    const enableLocalDevAuthBypass =
+      isDevelopmentAuthBypassEnabled() && !userId && !enableStreamingTestMode;
 
-    if (!enableStreamingTestMode && !userId) {
+    const bypassUserId = enableLocalDevAuthBypass
+      ? await getOrCreateLocalDevBypassUserId()
+      : undefined;
+    const resolvedUserId = userId ?? bypassUserId;
+    const effectiveUserId = resolvedUserId ?? STREAM_TEST_USER_ID;
+
+    if (!enableStreamingTestMode && !resolvedUserId) {
       apiGatewayErrorsTotal.inc({ status_code: "400" });
       httpRequestDurationSeconds.observe(
         { route },
@@ -202,7 +236,7 @@ export async function POST(req: NextRequest) {
       const userFindStart = Date.now();
       const user = await db.user.findFirst({
         where: {
-          id: userId,
+          id: resolvedUserId,
         },
       });
       databaseQueryDurationSeconds.observe(
@@ -238,7 +272,7 @@ export async function POST(req: NextRequest) {
       }
 
       const generationCount = await db.generation.count({
-        where: { userId },
+        where: { userId: resolvedUserId },
       });
 
       const planLimits = {
@@ -265,7 +299,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const rateLimitResult = await generationRateLimit.limit(userId!);
+      const rateLimitResult = await generationRateLimit.limit(resolvedUserId!);
       if (!rateLimitResult.success) {
         apiGatewayErrorsTotal.inc({ status_code: "429" });
         httpRequestDurationSeconds.observe(
@@ -285,7 +319,7 @@ export async function POST(req: NextRequest) {
       remaining = rateLimitResult.remaining;
       reset = rateLimitResult.reset;
 
-      userApiKeys = await getUserApiKeys(userId!);
+      userApiKeys = await getUserApiKeys(resolvedUserId!);
     }
 
     aiGenerationRequestsTotal.inc();
@@ -355,13 +389,13 @@ export async function POST(req: NextRequest) {
 
             const { finalAIresponse, parsedData } = parseAIOutput(fullResponse);
 
-            if (!enableStreamingTestMode && userId) {
+            if (!enableStreamingTestMode && resolvedUserId) {
               const createGenerationStart = Date.now();
               await db.generation.create({
                 data: {
                   userInput,
                   generatedOutput: parsedData,
-                  userId,
+                  userId: resolvedUserId,
                 },
               });
               databaseQueryDurationSeconds.observe(

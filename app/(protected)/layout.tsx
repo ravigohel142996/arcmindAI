@@ -2,8 +2,9 @@
 
 import { DOC_ROUTES } from "@/lib/routes";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { isDevelopmentAuthBypassEnabled } from "@/lib/auth/devBypass";
 
 export default function ProtectedLayout({
   children,
@@ -12,13 +13,17 @@ export default function ProtectedLayout({
 }) {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const pathname = usePathname();
+  const isLocalDevGenerateBypass =
+    isDevelopmentAuthBypassEnabled() &&
+    pathname.startsWith(DOC_ROUTES.GENERATE);
 
   useEffect(() => {
     if (status === "loading") return;
-    if (!session) {
+    if (!session && !isLocalDevGenerateBypass) {
       router.push(DOC_ROUTES.AUTH.LOGIN);
     }
-  }, [session, status, router]);
+  }, [session, status, router, isLocalDevGenerateBypass]);
 
   if (status === "loading") {
     return (
@@ -31,7 +36,7 @@ export default function ProtectedLayout({
     );
   }
 
-  if (!session) {
+  if (!session && !isLocalDevGenerateBypass) {
     return null;
   }
 
