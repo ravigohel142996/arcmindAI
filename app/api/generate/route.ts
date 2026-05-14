@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID } from "node:crypto";
 import {
   getTextFromAIChunk,
   streamGeminiWithFallback,
@@ -57,7 +56,7 @@ async function getOrCreateLocalDevBypassUserId(): Promise<string> {
     create: {
       email: DEV_BYPASS_USER.email,
       username: DEV_BYPASS_USER.username,
-      password: randomUUID(),
+      password: "DEV_BYPASS_NO_PASSWORD_LOGIN",
       isVerified: true,
       plan: "enterprise",
     },
@@ -197,6 +196,8 @@ export async function POST(req: NextRequest) {
       req.headers.get("x-stream-test-mode")?.trim() === "1";
     const enableLocalDevAuthBypass =
       isDevelopmentAuthBypassEnabled() && !userId && !enableStreamingTestMode;
+    // Keep stream-test mode separate from local auth bypass because stream-test has
+    // its own dedicated mock-user flow controlled by x-stream-test-mode.
 
     const bypassUserId = enableLocalDevAuthBypass
       ? await getOrCreateLocalDevBypassUserId()
