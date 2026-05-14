@@ -254,12 +254,17 @@ export async function POST(req: NextRequest) {
             controller.close();
           }
         };
+        const onAbort = () => {
+          sendEvent("abort", { success: false, message: "Request aborted" });
+          closeStream();
+        };
 
         const sendEvent = (event: string, data: unknown) => {
           if (!streamClosed) {
             controller.enqueue(encoder.encode(createSSEEvent(event, data)));
           }
         };
+        req.signal.addEventListener("abort", onAbort, { once: true });
 
         const run = async () => {
           const aiStart = Date.now();
@@ -276,7 +281,7 @@ export async function POST(req: NextRequest) {
 
             for await (const chunk of aiStream) {
               if (req.signal.aborted) {
-                sendEvent("abort", { success: false, message: "Request aborted" });
+                onAbort();
                 closeStream();
                 return;
               }
@@ -364,6 +369,7 @@ export async function POST(req: NextRequest) {
                 "An unexpected server error occurred while generating the response.",
             });
           } finally {
+            req.signal.removeEventListener("abort", onAbort);
             httpRequestDurationSeconds.observe(
               { route },
               (Date.now() - startTime) / 1000,
@@ -375,7 +381,7 @@ export async function POST(req: NextRequest) {
         void run();
       },
       cancel() {
-        req.signal.throwIfAborted();
+        // Readable stream cancellation is expected when clients disconnect.
       },
     });
 

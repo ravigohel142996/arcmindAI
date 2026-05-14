@@ -131,7 +131,7 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
           const { event, payload } = parsed;
 
           if (event === "chunk" && payload.chunk) {
-            setStreamedOutput((prev) => prev + payload.chunk!);
+            setStreamedOutput((prev) => prev + payload.chunk);
           } else if (event === "done" && payload.output) {
             finalResult = {
               success: true,
@@ -163,7 +163,6 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
       setError(errorMessage);
       return null;
     } finally {
-      await reader?.cancel().catch(() => null);
       reader?.releaseLock();
       abortControllerRef.current = null;
       setIsLoading(false);
