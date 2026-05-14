@@ -37,7 +37,6 @@ const STREAM_TEST_USER_ID = "__stream_test__";
 type GenerateRequestBody = {
   userInput: string;
   userId?: string;
-  streamTestMode?: boolean;
 };
 
 function isJsonObject(
@@ -120,12 +119,12 @@ function parseAIOutput(cleanedOutput: string): ParsedOutput {
 }
 
 async function* createMockLangChainStream(
-  userInput: string,
+  _userInput: string,
 ): AsyncGenerator<AIMessageChunk> {
   const mockOutput = `\`\`\`json
 {
   "systemName": "Streaming Test System",
-  "summary": "Simulated progressive response for ${userInput.slice(0, 80)}",
+  "summary": "Simulated progressive response for stream test mode",
   "microservices": [],
   "entities": [],
   "apiRoutes": [],
@@ -162,13 +161,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { userInput, userId, streamTestMode } = body as GenerateRequestBody;
+    const { userInput, userId } = body as GenerateRequestBody;
     const isStreamTestModeEnabled = process.env.ENABLE_STREAM_TEST_MODE === "true";
     const enableStreamingTestMode =
       isStreamTestModeEnabled &&
       process.env.NODE_ENV !== "production" &&
-      (streamTestMode === true ||
-        req.headers.get("x-stream-test-mode")?.trim() === "1");
+      req.headers.get("x-stream-test-mode")?.trim() === "1";
     const effectiveUserId = userId ?? STREAM_TEST_USER_ID;
 
     if (!enableStreamingTestMode && !userId) {

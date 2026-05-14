@@ -203,7 +203,9 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
       return null;
     } finally {
       if (controller.signal.aborted) {
-        await reader?.cancel().catch(() => undefined);
+        await reader?.cancel().catch((cancelError) => {
+          console.warn("Failed to cancel stream reader:", cancelError);
+        });
       }
       reader?.releaseLock();
       abortControllerRef.current = null;
