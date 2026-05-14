@@ -280,10 +280,6 @@ export async function POST(req: NextRequest) {
             let fullResponse = "";
 
             for await (const chunk of aiStream) {
-              if (req.signal.aborted) {
-                return;
-              }
-
               const textChunk = getTextFromAIChunk(chunk);
               if (!textChunk) continue;
 

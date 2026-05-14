@@ -120,7 +120,7 @@ export default function GeneratePage() {
       if (generateError) {
         setError(generateError);
       } else {
-        setError("Generation failed");
+        setError("Generation completed without returning results.");
       }
       setGeneratedData(null);
     }
