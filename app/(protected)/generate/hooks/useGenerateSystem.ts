@@ -48,7 +48,7 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
   }, [stopGeneration]);
 
   const parseSSEMessage = (rawEvent: string) => {
-    const lines = rawEvent.split("\n");
+    const lines = rawEvent.split(/\r?\n/);
     let event = "message";
     let data = "";
 
@@ -56,15 +56,16 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
       if (line.startsWith("event:")) {
         event = line.slice(6).trim();
       } else if (line.startsWith("data:")) {
-        data += line.slice(5).trim();
+        data += `${line.slice(5).trim()}\n`;
       }
     }
 
-    if (!data) return null;
+    const normalizedData = data.trim();
+    if (!normalizedData) return null;
 
     let payload: SSEEventPayload;
     try {
-      payload = JSON.parse(data) as SSEEventPayload;
+      payload = JSON.parse(normalizedData) as SSEEventPayload;
     } catch {
       payload = { error: "Failed to parse streaming payload" };
     }
@@ -123,21 +124,28 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
       const decoder = new TextDecoder("utf-8");
       let buffer = "";
       let finalResult: GenerateResponse | null = null;
+      const eventSeparator = /\r?\n\r?\n/;
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          buffer += decoder.decode();
+          break;
+        }
 
         buffer += decoder.decode(value, { stream: true });
 
-        let separatorIndex = buffer.indexOf("\n\n");
+        let separatorMatch = eventSeparator.exec(buffer);
+        let separatorIndex = separatorMatch ? separatorMatch.index : -1;
         while (separatorIndex !== -1) {
           const rawEvent = buffer.slice(0, separatorIndex);
-          buffer = buffer.slice(separatorIndex + 2);
+          const separatorLength = separatorMatch?.[0].length ?? 2;
+          buffer = buffer.slice(separatorIndex + separatorLength);
 
           const parsed = parseSSEMessage(rawEvent);
           if (!parsed) {
-            separatorIndex = buffer.indexOf("\n\n");
+            separatorMatch = eventSeparator.exec(buffer);
+            separatorIndex = separatorMatch ? separatorMatch.index : -1;
             continue;
           }
 
@@ -159,7 +167,25 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
             throw new Error(payload.error || "Failed to stream AI response.");
           }
 
-          separatorIndex = buffer.indexOf("\n\n");
+          separatorMatch = eventSeparator.exec(buffer);
+          separatorIndex = separatorMatch ? separatorMatch.index : -1;
+        }
+      }
+
+      if (buffer.trim()) {
+        const parsed = parseSSEMessage(buffer.trim());
+        if (parsed) {
+          const { event, payload } = parsed;
+          if (event === "chunk" && payload.chunk) {
+            setStreamedOutput((prev) => prev + payload.chunk);
+          } else if (event === "done" && payload.output) {
+            finalResult = {
+              success: true,
+              output: payload.output,
+            };
+          } else if (event === "error") {
+            throw new Error(payload.error || "Failed to stream AI response.");
+          }
         }
       }
 
@@ -179,6 +205,9 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
       setError(errorMessage);
       return null;
     } finally {
+      if (controller.signal.aborted) {
+        await reader?.cancel().catch(() => undefined);
+      }
       reader?.releaseLock();
       abortControllerRef.current = null;
       setIsLoading(false);
