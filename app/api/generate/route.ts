@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import {
   getTextFromAIChunk,
   streamGeminiWithFallback,
@@ -56,7 +57,7 @@ async function getOrCreateLocalDevBypassUserId(): Promise<string> {
     create: {
       email: DEV_BYPASS_USER.email,
       username: DEV_BYPASS_USER.username,
-      password: DEV_BYPASS_USER.password,
+      password: randomUUID(),
       isVerified: true,
       plan: "enterprise",
     },

@@ -5,10 +5,8 @@
 export const DEV_BYPASS_USER = {
   email: "test@local.dev",
   username: "localtest",
-  password: "local-dev-auth-bypass",
 };
 
 export function isDevelopmentAuthBypassEnabled(): boolean {
   return process.env.NODE_ENV === "development";
 }
-
