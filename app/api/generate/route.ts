@@ -190,12 +190,23 @@ export async function POST(req: NextRequest) {
 
     const { userInput, userId } = body as GenerateRequestBody;
     const isStreamTestModeEnabled = process.env.ENABLE_STREAM_TEST_MODE === "true";
+    const isDevelopmentWithoutDatabase =
+      process.env.NODE_ENV === "development" &&
+      !process.env.DATABASE_URL?.trim();
+    // TEMPORARY DEVELOPMENT FALLBACK:
+    // When DATABASE_URL is not configured in local development, bypass database-
+    // dependent logic so /generate streaming can be tested safely.
+    // Remove this once local development always provides a working DATABASE_URL.
+    // Production behavior remains unchanged because this is development-only.
     const enableStreamingTestMode =
       isStreamTestModeEnabled &&
       process.env.NODE_ENV !== "production" &&
       req.headers.get("x-stream-test-mode")?.trim() === "1";
     const enableLocalDevAuthBypass =
-      isDevelopmentAuthBypassEnabled() && !userId && !enableStreamingTestMode;
+      isDevelopmentAuthBypassEnabled() &&
+      !userId &&
+      !enableStreamingTestMode &&
+      !isDevelopmentWithoutDatabase;
     // Keep stream-test mode separate from local auth bypass because stream-test has
     // its own dedicated mock-user flow controlled by x-stream-test-mode.
 
@@ -205,7 +216,11 @@ export async function POST(req: NextRequest) {
     const resolvedUserId = userId ?? bypassUserId;
     const effectiveUserId = resolvedUserId ?? STREAM_TEST_USER_ID;
 
-    if (!enableStreamingTestMode && !resolvedUserId) {
+    if (
+      !enableStreamingTestMode &&
+      !isDevelopmentWithoutDatabase &&
+      !resolvedUserId
+    ) {
       apiGatewayErrorsTotal.inc({ status_code: "400" });
       httpRequestDurationSeconds.observe(
         { route },
@@ -234,7 +249,8 @@ export async function POST(req: NextRequest) {
     let reset: number | undefined;
     let userApiKeys: UserApiKeys = {};
 
-    if (!enableStreamingTestMode) {
+    // In development without DATABASE_URL, skip user/rate-limit/key lookups that require Prisma.
+    if (!enableStreamingTestMode && !isDevelopmentWithoutDatabase) {
       const userFindStart = Date.now();
       const user = await db.user.findFirst({
         where: {
@@ -362,7 +378,7 @@ export async function POST(req: NextRequest) {
             sendEvent("start", { success: true });
 
             const shouldUseMockStream =
-              enableStreamingTestMode &&
+              (enableStreamingTestMode || isDevelopmentWithoutDatabase) &&
               !userApiKeys.geminiApiKey &&
               !process.env.GEMINI_API_KEY &&
               !process.env.GEMINI_API_KEY_UNSECURED;
@@ -391,7 +407,12 @@ export async function POST(req: NextRequest) {
 
             const { finalAIresponse, parsedData } = parseAIOutput(fullResponse);
 
-            if (!enableStreamingTestMode && resolvedUserId) {
+            if (
+              !enableStreamingTestMode &&
+              !isDevelopmentWithoutDatabase &&
+              resolvedUserId
+            ) {
+              // Development fallback intentionally skips persistence when DATABASE_URL is missing.
               const createGenerationStart = Date.now();
               await db.generation.create({
                 data: {
