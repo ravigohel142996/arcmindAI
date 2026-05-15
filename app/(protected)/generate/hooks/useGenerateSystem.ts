@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { DOC_ROUTES } from "@/lib/routes";
-import { isDevelopmentAuthBypassEnabled } from "@/lib/auth/devBypass";
 
 interface GenerateResponse {
   success: boolean;
@@ -77,10 +76,8 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
   const generate = async (
     userInput: string,
   ): Promise<GenerateResponse | null> => {
-    const isLocalDevBypass = isDevelopmentAuthBypassEnabled() && !session;
-
     // @ts-expect-error accessToken is added to session in NextAuth callbacks
-    if (!isLocalDevBypass && !session?.user?.accessToken) {
+    if (!session?.user?.accessToken) {
       setError("No access token available. Please log in.");
       return null;
     }
