@@ -90,11 +90,33 @@ export async function POST(req: NextRequest) {
     });
 
     // Send new OTP email
-    await sendMail({
-      to: email,
-      subject: "Verify your email - ArcMindAI",
-      html: otpEmailTemplate(newOtp, user.username),
-    });
+    try {
+      await sendMail({
+        to: email,
+        subject: "Verify your email - ArcMindAI",
+        html: otpEmailTemplate(newOtp, user.username),
+      });
+    } catch (emailError) {
+      console.error(`Failed to resend OTP email to ${email}:`, emailError);
+
+      if (process.env.NODE_ENV === "development") {
+        httpRequestDurationSeconds.observe(
+          { route },
+          (Date.now() - startTime) / 1000,
+        );
+        return NextResponse.json({
+          success: true,
+          message:
+            "Email service unavailable locally. OTP was regenerated; use local logs/developer tooling to verify.",
+          limit,
+          remaining,
+          reset,
+          devFallback: true,
+        });
+      }
+
+      throw emailError;
+    }
 
     // Track total HTTP duration
     httpRequestDurationSeconds.observe(

@@ -21,7 +21,6 @@ import { Separator } from "@/components/ui/separator";
 import { useHistory } from "@/lib/contexts/HistoryContext";
 import { DOC_ROUTES } from "@/lib/routes";
 import Link from "next/link";
-import { isDevelopmentAuthBypassEnabled } from "@/lib/auth/devBypass";
 
 export default function GenerateLayout({
   children,
@@ -32,16 +31,15 @@ export default function GenerateLayout({
   const router = useRouter();
   const pathname = usePathname();
   const { history } = useHistory();
-  const isLocalDevGenerateBypass = isDevelopmentAuthBypassEnabled();
 
   useEffect(() => {
     if (status === "loading") return;
-    if (!session && !isLocalDevGenerateBypass) {
+    if (!session) {
       router.push(DOC_ROUTES.AUTH.LOGIN);
     }
-  }, [session, status, router, isLocalDevGenerateBypass]);
+  }, [session, status, router]);
 
-  if (!session && !isLocalDevGenerateBypass) {
+  if (!session) {
     return null;
   }
 
