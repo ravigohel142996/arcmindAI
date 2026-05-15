@@ -420,7 +420,7 @@ export async function POST(req: NextRequest) {
               if (!textChunk) continue;
 
               fullResponse += textChunk;
-              sendEvent("chunk", { chunk: textChunk });
+              sendEvent("chunk", { chunk: textChunk, content: textChunk });
 
               const partial = tryParsePartialJSON(fullResponse);
               if (partial && isJsonObject(partial)) {
@@ -432,7 +432,7 @@ export async function POST(req: NextRequest) {
             aiGenerationDurationSeconds.observe(aiDuration);
 
             if (!fullResponse.trim()) {
-              throw new Error("Empty AI response received.");
+              throw new Error("Empty AI response");
             }
 
             const { finalAIresponse, parsedData } = parseAIOutput(fullResponse);
@@ -468,6 +468,7 @@ export async function POST(req: NextRequest) {
             sendEvent("done", {
               success: true,
               output: finalAIresponse,
+              content: finalAIresponse,
               architecture: parsedData as ArchitectureShape,
               ...(limit !== undefined ? { limit } : {}),
               ...(remaining !== undefined ? { remaining } : {}),

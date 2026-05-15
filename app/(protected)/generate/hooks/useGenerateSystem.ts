@@ -12,6 +12,7 @@ interface GenerateResponse {
 type SSEEventPayload = {
   success?: boolean;
   chunk?: string;
+  content?: string;
   output?: string;
   architecture?: ArchitectureData;
   partial?: Partial<ArchitectureData>;
@@ -156,9 +157,12 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
 
           const { event, payload } = parsed;
 
-          if (event === "chunk" && payload.chunk) {
-            streamedText += payload.chunk;
-            setStreamedOutput((prev) => prev + payload.chunk);
+          if (event === "chunk") {
+            const chunkText = payload.chunk ?? payload.content ?? "";
+            if (chunkText) {
+              streamedText += chunkText;
+              setStreamedOutput((prev) => prev + chunkText);
+            }
           } else if (event === "partial" && payload.partial) {
             setPartialData((prev) => ({ ...(prev ?? {}), ...payload.partial }));
           } else if (event === "done") {
@@ -167,7 +171,7 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
             }
             finalResult = {
               success: true,
-              output: payload.output ?? "",
+              output: payload.output ?? payload.content ?? "",
             };
           } else if (event === "abort") {
             throw new DOMException(
@@ -189,9 +193,12 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
         const parsed = parseSSEMessage(buffer.trim());
         if (parsed) {
           const { event, payload } = parsed;
-          if (event === "chunk" && payload.chunk) {
-            streamedText += payload.chunk;
-            setStreamedOutput((prev) => prev + payload.chunk);
+          if (event === "chunk") {
+            const chunkText = payload.chunk ?? payload.content ?? "";
+            if (chunkText) {
+              streamedText += chunkText;
+              setStreamedOutput((prev) => prev + chunkText);
+            }
           } else if (event === "partial" && payload.partial) {
             setPartialData((prev) => ({ ...(prev ?? {}), ...payload.partial }));
           } else if (event === "done") {
@@ -200,7 +207,7 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
             }
             finalResult = {
               success: true,
-              output: payload.output ?? "",
+              output: payload.output ?? payload.content ?? "",
             };
           } else if (event === "error") {
             throw new Error(payload.error || "Failed to stream AI response.");
