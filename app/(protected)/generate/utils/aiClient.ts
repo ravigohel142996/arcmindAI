@@ -244,8 +244,22 @@ export async function streamGeminiWithFallback(
   );
 }
 
-export function getTextFromAIChunk(chunk: AIMessageChunk): string {
-  const { content } = chunk;
+export function getTextFromAIChunk(chunk: unknown): string {
+  if (typeof chunk === "string") return chunk;
+
+  if (typeof chunk !== "object" || chunk === null) {
+    return "";
+  }
+
+  if ("text" in chunk && typeof chunk.text === "string") {
+    return chunk.text;
+  }
+
+  if (!("content" in chunk)) {
+    return "";
+  }
+
+  const content = (chunk as AIMessageChunk).content;
 
   if (typeof content === "string") return content;
 
