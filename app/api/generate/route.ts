@@ -32,6 +32,8 @@ type ParsedOutput = {
   parsedData: Prisma.InputJsonValue;
 };
 
+type ArchitectureShape = Record<string, Prisma.InputJsonValue>;
+
 const STREAM_TEST_USER_ID = "__stream_test__";
 
 type GenerateRequestBody = {
@@ -466,6 +468,7 @@ export async function POST(req: NextRequest) {
             sendEvent("done", {
               success: true,
               output: finalAIresponse,
+              architecture: parsedData as ArchitectureShape,
               ...(limit !== undefined ? { limit } : {}),
               ...(remaining !== undefined ? { remaining } : {}),
               ...(reset !== undefined ? { reset } : {}),
