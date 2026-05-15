@@ -257,8 +257,10 @@ export const authOptions: AuthOptions = {
       return session;
     },
   },
-  // DEV: Provide a fallback secret for local development so NextAuth can sign
-  // JWTs even when NEXTAUTH_SECRET is not set in .env.local.
+  // DEV: Provide a fallback secret so NextAuth can sign JWTs when
+  // NEXTAUTH_SECRET is absent in local development. This fallback is a fixed
+  // string and therefore produces predictable, forgeable tokens — it is
+  // intentionally insecure and must NEVER be used outside local dev.
   // Production deployments must always set NEXTAUTH_SECRET explicitly.
   secret: process.env.NEXTAUTH_SECRET || (isDev ? "dev-only-nextauth-secret-replace-in-production" : undefined),
 };

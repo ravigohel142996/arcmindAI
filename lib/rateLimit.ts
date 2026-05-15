@@ -48,7 +48,7 @@ function createRateLimiter(limiter: Algorithm<any>): RateLimiter {
   return new Ratelimit({ redis, limiter, analytics: true });
 }
 
-// 2 requests per 2 minutes
+// 2 requests per 120-second sliding window
 export const generationRateLimit = createRateLimiter(Ratelimit.slidingWindow(2, "120 s"));
 
 // 1 OTP per minute
