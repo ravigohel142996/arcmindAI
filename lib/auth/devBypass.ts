@@ -27,5 +27,7 @@ export const DEV_BYPASS_SESSION: DevBypassSession = {
 };
 
 export function isDevelopmentAuthBypassEnabled(): boolean {
-  return process.env.NODE_ENV === "development";
+  const isDevelopment = process.env.NODE_ENV === "development";
+  const hasDatabase = !!process.env.DATABASE_URL?.trim();
+  return isDevelopment && !hasDatabase;
 }
