@@ -4,11 +4,7 @@ import {
   streamGeminiWithFallback,
 } from "@/app/(protected)/generate/utils/aiClient";
 import { SystemPrompt } from "@/lib/prompts/promptTemplate";
-import {
-  AIMessageChunk,
-  HumanMessage,
-  SystemMessage,
-} from "@langchain/core/messages";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { db } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { generationRateLimit } from "@/lib/rateLimit";
@@ -145,26 +141,59 @@ function parseAIOutput(cleanedOutput: string): ParsedOutput {
   };
 }
 
-async function* createMockLangChainStream(
-  _userInput: string,
-): AsyncGenerator<AIMessageChunk> {
-  const mockOutput = `\`\`\`json
-{
-  "systemName": "Streaming Test System",
-  "summary": "Simulated progressive response for stream test mode",
-  "microservices": [],
-  "entities": [],
-  "apiRoutes": [],
-  "databaseSchema": [],
-  "infrastructure": []
-}
-\`\`\``;
 
-  const chunkSize = 18;
-  for (let i = 0; i < mockOutput.length; i += chunkSize) {
-    await new Promise((resolve) => setTimeout(resolve, 25));
-    const slice = mockOutput.slice(i, i + chunkSize);
-    yield new AIMessageChunk({ content: slice });
+function tryParsePartialJSON(text: string): Prisma.InputJsonValue | null {
+  const jsonStartMarker = "```json";
+  let jsonText = text;
+
+  const jsonStart = jsonText.indexOf(jsonStartMarker);
+  if (jsonStart !== -1) {
+    jsonText = jsonText.slice(jsonStart + jsonStartMarker.length);
+  }
+
+  const firstBrace = jsonText.indexOf("{");
+  if (firstBrace === -1) return null;
+
+  let braceCount = 0;
+  let inString = false;
+  let escaped = false;
+  let lastBrace = -1;
+
+  for (let i = firstBrace; i < jsonText.length; i++) {
+    const ch = jsonText[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (ch === "{") braceCount++;
+    if (ch === "}") {
+      braceCount--;
+      if (braceCount === 0) {
+        lastBrace = i;
+        break;
+      }
+    }
+  }
+
+  if (lastBrace === -1) return null;
+
+  const candidate = jsonText.slice(firstBrace, lastBrace + 1).trim();
+  try {
+    return JSON.parse(candidate) as Prisma.InputJsonValue;
+  } catch {
+    return null;
   }
 }
 
@@ -377,16 +406,10 @@ export async function POST(req: NextRequest) {
           try {
             sendEvent("start", { success: true });
 
-            const shouldUseMockStream =
-              (enableStreamingTestMode || isDevelopmentWithoutDatabase) &&
-              !userApiKeys.geminiApiKey &&
-              !process.env.GEMINI_API_KEY &&
-              !process.env.GEMINI_API_KEY_UNSECURED;
-
-            const aiStream = shouldUseMockStream
-              ? createMockLangChainStream(userInput)
-              : (await streamGeminiWithFallback(messages, userApiKeys.geminiApiKey))
-                  .stream;
+            const { stream: aiStream } = await streamGeminiWithFallback(
+              messages,
+              userApiKeys.geminiApiKey,
+            );
 
             let fullResponse = "";
 
@@ -396,6 +419,11 @@ export async function POST(req: NextRequest) {
 
               fullResponse += textChunk;
               sendEvent("chunk", { chunk: textChunk });
+
+              const partial = tryParsePartialJSON(fullResponse);
+              if (partial && isJsonObject(partial)) {
+                sendEvent("partial", { partial });
+              }
             }
 
             const aiDuration = (Date.now() - aiStart) / 1000;

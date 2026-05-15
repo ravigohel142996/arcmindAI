@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { DOC_ROUTES } from "@/lib/routes";
 
+import { ArchitectureData } from "../utils/types";
+
 interface GenerateResponse {
   success: boolean;
   output: string;
@@ -11,6 +13,7 @@ type SSEEventPayload = {
   success?: boolean;
   chunk?: string;
   output?: string;
+  partial?: Partial<ArchitectureData>;
   error?: string;
   status?: number;
   message?: string;
@@ -34,6 +37,7 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [streamedOutput, setStreamedOutput] = useState("");
+  const [partialData, setPartialData] = useState<Partial<ArchitectureData> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const stopGeneration = useCallback(() => {
@@ -89,6 +93,7 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
     setIsLoading(true);
     setError(null);
     setStreamedOutput("");
+    setPartialData(null);
 
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
@@ -150,6 +155,8 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
 
           if (event === "chunk" && payload.chunk) {
             setStreamedOutput((prev) => prev + payload.chunk);
+          } else if (event === "partial" && payload.partial) {
+            setPartialData((prev) => ({ ...(prev ?? {}), ...payload.partial }));
           } else if (event === "done" && payload.output) {
             finalResult = {
               success: true,
@@ -175,6 +182,8 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
           const { event, payload } = parsed;
           if (event === "chunk" && payload.chunk) {
             setStreamedOutput((prev) => prev + payload.chunk);
+          } else if (event === "partial" && payload.partial) {
+            setPartialData((prev) => ({ ...(prev ?? {}), ...payload.partial }));
           } else if (event === "done" && payload.output) {
             finalResult = {
               success: true,
@@ -217,6 +226,7 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
     generate,
     stopGeneration,
     streamedOutput,
+    partialData,
     isLoading,
     error,
   };
