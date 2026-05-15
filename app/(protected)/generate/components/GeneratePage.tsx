@@ -22,6 +22,7 @@ export default function GeneratePage() {
     generate,
     stopGeneration,
     streamedOutput,
+    partialData,
     isLoading,
     error: generateError,
   } = useGenerateSystem(refetch);
@@ -158,6 +159,21 @@ export default function GeneratePage() {
 
       {isLoading && (
         <div className="space-y-4">
+          {partialData && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Live Architecture Preview</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                {partialData.systemName && <p><strong>System:</strong> {partialData.systemName}</p>}
+                {partialData.summary && <p><strong>Summary:</strong> {partialData.summary}</p>}
+                <p><strong>Microservices:</strong> {partialData.microservices?.length ?? 0}</p>
+                <p><strong>Entities:</strong> {partialData.entities?.length ?? 0}</p>
+                <p><strong>API Route Groups:</strong> {partialData.apiRoutes?.length ?? 0}</p>
+                <p><strong>Database Collections:</strong> {partialData.databaseSchema?.collections?.length ?? 0}</p>
+              </CardContent>
+            </Card>
+          )}
           <div className="flex justify-center items-center">
             <Lottie
               animationData={animationData}
