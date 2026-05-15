@@ -190,12 +190,13 @@ export async function POST(req: NextRequest) {
 
     const { userInput, userId } = body as GenerateRequestBody;
     const isStreamTestModeEnabled = process.env.ENABLE_STREAM_TEST_MODE === "true";
-    const isDatabaseUrlMissingInDevelopment =
+    const isDevelopmentWithoutDatabase =
       process.env.NODE_ENV === "development" &&
       !process.env.DATABASE_URL?.trim();
     // TEMPORARY DEVELOPMENT FALLBACK:
     // When DATABASE_URL is not configured in local development, bypass database-
     // dependent logic so /generate streaming can be tested safely.
+    // Remove this once local development always provides a working DATABASE_URL.
     // Production behavior remains unchanged because this is development-only.
     const enableStreamingTestMode =
       isStreamTestModeEnabled &&
@@ -205,7 +206,7 @@ export async function POST(req: NextRequest) {
       isDevelopmentAuthBypassEnabled() &&
       !userId &&
       !enableStreamingTestMode &&
-      !isDatabaseUrlMissingInDevelopment;
+      !isDevelopmentWithoutDatabase;
     // Keep stream-test mode separate from local auth bypass because stream-test has
     // its own dedicated mock-user flow controlled by x-stream-test-mode.
 
@@ -217,7 +218,7 @@ export async function POST(req: NextRequest) {
 
     if (
       !enableStreamingTestMode &&
-      !isDatabaseUrlMissingInDevelopment &&
+      !isDevelopmentWithoutDatabase &&
       !resolvedUserId
     ) {
       apiGatewayErrorsTotal.inc({ status_code: "400" });
@@ -249,7 +250,7 @@ export async function POST(req: NextRequest) {
     let userApiKeys: UserApiKeys = {};
 
     // In development without DATABASE_URL, skip user/rate-limit/key lookups that require Prisma.
-    if (!enableStreamingTestMode && !isDatabaseUrlMissingInDevelopment) {
+    if (!enableStreamingTestMode && !isDevelopmentWithoutDatabase) {
       const userFindStart = Date.now();
       const user = await db.user.findFirst({
         where: {
@@ -377,7 +378,7 @@ export async function POST(req: NextRequest) {
             sendEvent("start", { success: true });
 
             const shouldUseMockStream =
-              (enableStreamingTestMode || isDatabaseUrlMissingInDevelopment) &&
+              (enableStreamingTestMode || isDevelopmentWithoutDatabase) &&
               !userApiKeys.geminiApiKey &&
               !process.env.GEMINI_API_KEY &&
               !process.env.GEMINI_API_KEY_UNSECURED;
@@ -408,7 +409,7 @@ export async function POST(req: NextRequest) {
 
             if (
               !enableStreamingTestMode &&
-              !isDatabaseUrlMissingInDevelopment &&
+              !isDevelopmentWithoutDatabase &&
               resolvedUserId
             ) {
               // Development fallback intentionally skips persistence when DATABASE_URL is missing.
