@@ -13,6 +13,7 @@ type SSEEventPayload = {
   success?: boolean;
   chunk?: string;
   output?: string;
+  architecture?: ArchitectureData;
   partial?: Partial<ArchitectureData>;
   error?: string;
   status?: number;
@@ -129,6 +130,8 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
       const decoder = new TextDecoder("utf-8");
       let buffer = "";
       let finalResult: GenerateResponse | null = null;
+      let finalArchitecture: ArchitectureData | null = null;
+      let streamedText = "";
       const eventSeparator = /\r?\n\r?\n/;
 
       while (true) {
@@ -154,13 +157,17 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
           const { event, payload } = parsed;
 
           if (event === "chunk" && payload.chunk) {
+            streamedText += payload.chunk;
             setStreamedOutput((prev) => prev + payload.chunk);
           } else if (event === "partial" && payload.partial) {
             setPartialData((prev) => ({ ...(prev ?? {}), ...payload.partial }));
-          } else if (event === "done" && payload.output) {
+          } else if (event === "done") {
+            if (payload.architecture) {
+              finalArchitecture = payload.architecture;
+            }
             finalResult = {
               success: true,
-              output: payload.output,
+              output: payload.output ?? "",
             };
           } else if (event === "abort") {
             throw new DOMException(
@@ -176,23 +183,37 @@ export function useGenerateSystem(refetchHistory?: () => Promise<void>) {
         }
       }
 
+      buffer += decoder.decode();
+
       if (buffer.trim()) {
         const parsed = parseSSEMessage(buffer.trim());
         if (parsed) {
           const { event, payload } = parsed;
           if (event === "chunk" && payload.chunk) {
+            streamedText += payload.chunk;
             setStreamedOutput((prev) => prev + payload.chunk);
           } else if (event === "partial" && payload.partial) {
             setPartialData((prev) => ({ ...(prev ?? {}), ...payload.partial }));
-          } else if (event === "done" && payload.output) {
+          } else if (event === "done") {
+            if (payload.architecture) {
+              finalArchitecture = payload.architecture;
+            }
             finalResult = {
               success: true,
-              output: payload.output,
+              output: payload.output ?? "",
             };
           } else if (event === "error") {
             throw new Error(payload.error || "Failed to stream AI response.");
           }
         }
+      }
+
+      if (finalResult?.success && !finalResult.output && finalArchitecture) {
+        finalResult.output = JSON.stringify(finalArchitecture);
+      }
+
+      if (finalResult?.success && !finalResult.output && streamedText.trim()) {
+        finalResult.output = streamedText;
       }
 
       if (finalResult?.success && refetchHistory) {
