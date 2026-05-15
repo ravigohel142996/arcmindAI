@@ -50,6 +50,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // DEV: When DATABASE_URL is absent, return a mock success response so the
+    // signup form can navigate forward. The verify-request page is shown but
+    // actual OTP verification is skipped — users can access /generate directly
+    // via the dev auth bypass in the protected layout.
+    if (process.env.NODE_ENV === "development" && !process.env.DATABASE_URL?.trim()) {
+      console.warn("[DEV] DATABASE_URL not set — returning mock signup success.");
+      httpRequestDurationSeconds.observe({ route }, (Date.now() - startTime) / 1000);
+      return NextResponse.json({
+        success: true,
+        message: "Dev mode: mock signup. Go to /generate to test the app.",
+        user: { id: "local-dev-user", email, username, isVerified: false },
+      });
+    }
+
     const dbFindStart = Date.now();
     let existingUser;
     try {

@@ -15,6 +15,24 @@ import {
   userLastActivityTimestamp,
 } from "@/lib/metrics";
 
+const isDev = process.env.NODE_ENV === "development";
+const isDatabaseConfigured = !!process.env.DATABASE_URL?.trim();
+
+// DEV: GitHub provider is only included when credentials are present.
+// Avoids NextAuth initialisation crash when GITHUB_CLIENT_ID/SECRET are absent locally.
+const githubProvider =
+  process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET
+    ? GitHubProvider({
+        clientId: process.env.GITHUB_CLIENT_ID,
+        clientSecret: process.env.GITHUB_CLIENT_SECRET,
+        authorization: {
+          params: {
+            scope: "read:user user:email repo",
+          },
+        },
+      })
+    : null;
+
 export const authOptions: AuthOptions = {
   providers: [
     CredentialsProvider({
@@ -41,6 +59,24 @@ export const authOptions: AuthOptions = {
               (Date.now() - startTime) / 1000,
             );
             throw new Error("Missing email or password");
+          }
+
+          // DEV: When DATABASE_URL is absent, allow any credentials and return a
+          // mock user so the login form succeeds without a real database.
+          if (isDev && !isDatabaseConfigured) {
+            console.warn(
+              "[DEV] DATABASE_URL not set — bypassing credential validation for local development.",
+            );
+            httpRequestDurationSeconds.observe(
+              { route },
+              (Date.now() - startTime) / 1000,
+            );
+            return {
+              id: "local-dev-bypass-user",
+              email: credentials.email,
+              name: credentials.email.split("@")[0],
+              accessToken: "DEV_BYPASS_ACCESS_TOKEN",
+            };
           }
 
           // Get client IP
@@ -140,15 +176,8 @@ export const authOptions: AuthOptions = {
         }
       },
     }),
-    GitHubProvider({
-      clientId: process.env.GITHUB_CLIENT_ID!,
-      clientSecret: process.env.GITHUB_CLIENT_SECRET!,
-      authorization: {
-        params: {
-          scope: "read:user user:email repo",
-        },
-      },
-    }),
+    // DEV: GitHub provider is only registered when credentials are present.
+    ...(githubProvider ? [githubProvider] : []),
   ],
 
   pages: {
@@ -228,7 +257,12 @@ export const authOptions: AuthOptions = {
       return session;
     },
   },
-  secret: process.env.NEXTAUTH_SECRET,
+  // DEV: Provide a fallback secret so NextAuth can sign JWTs when
+  // NEXTAUTH_SECRET is absent in local development. This fallback is a fixed
+  // string and therefore produces predictable, forgeable tokens — it is
+  // intentionally insecure and must NEVER be used outside local dev.
+  // Production deployments must always set NEXTAUTH_SECRET explicitly.
+  secret: process.env.NEXTAUTH_SECRET || (isDev ? "dev-only-nextauth-secret-replace-in-production" : undefined),
 };
 
 const handler = NextAuth(authOptions);
