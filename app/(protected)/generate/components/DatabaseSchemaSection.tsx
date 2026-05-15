@@ -9,9 +9,7 @@ export default function DatabaseSchemaSection({
   schema,
 }: DatabaseSchemaSectionProps) {
   const databaseType =
-    typeof schema?.type === "string" && schema.type.trim().length > 0
-      ? schema.type
-      : "Not specified yet";
+    typeof schema?.type === "string" ? schema.type || "Not specified yet" : "Not specified yet";
   const collections = Array.isArray(schema?.collections)
     ? schema.collections
     : [];

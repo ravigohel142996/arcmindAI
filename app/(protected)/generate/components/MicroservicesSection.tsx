@@ -34,45 +34,49 @@ export default function MicroservicesSection({
           </CardContent>
         </Card>
       ) : (
-        services.map((service, index) => (
-          <Card key={index}>
-            <CardHeader>
-              <CardTitle className="text-lg">
-                {service?.name || `Service ${index + 1}`}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-gray-600 mb-2">
-                {service?.responsibility || "No responsibility provided yet."}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {(Array.isArray(service?.techStack) ? service.techStack : []).map(
-                  (tech, idx) => (
-                  <span
-                    key={idx}
-                    className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded"
-                  >
-                    {tech}
-                  </span>
-                  ),
-                )}
-              </div>
-              {service?.details?.workflow && (
-                <p className="mt-3 text-sm text-gray-700">
-                  <span className="font-semibold">Workflow:</span>{" "}
-                  {service.details.workflow}
+        services.map((service, index) => {
+          const techStack = Array.isArray(service?.techStack)
+            ? service.techStack
+            : [];
+
+          return (
+            <Card key={index}>
+              <CardHeader>
+                <CardTitle className="text-lg">
+                  {service?.name || `Service ${index + 1}`}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-gray-600 mb-2">
+                  {service?.responsibility || "No responsibility provided yet."}
                 </p>
-              )}
-              {renderList("Inputs", service?.details?.inputs ?? [])}
-              {renderList("Outputs", service?.details?.outputs ?? [])}
-              {renderList(
-                "Integration Points",
-                service?.details?.integrationPoints ?? [],
-              )}
-              {renderList("Data Storage", service?.details?.dataStorage ?? [])}
-            </CardContent>
-          </Card>
-        ))
+                <div className="flex flex-wrap gap-2">
+                  {techStack.map((tech, idx) => (
+                    <span
+                      key={idx}
+                      className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded"
+                    >
+                      {tech}
+                    </span>
+                  ))}
+                </div>
+                {service?.details?.workflow && (
+                  <p className="mt-3 text-sm text-gray-700">
+                    <span className="font-semibold">Workflow:</span>{" "}
+                    {service.details.workflow}
+                  </p>
+                )}
+                {renderList("Inputs", service?.details?.inputs ?? [])}
+                {renderList("Outputs", service?.details?.outputs ?? [])}
+                {renderList(
+                  "Integration Points",
+                  service?.details?.integrationPoints ?? [],
+                )}
+                {renderList("Data Storage", service?.details?.dataStorage ?? [])}
+              </CardContent>
+            </Card>
+          );
+        })
       )}
     </div>
   );
