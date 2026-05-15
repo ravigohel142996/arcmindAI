@@ -23,7 +23,8 @@ const SignUpForm = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [username, setUsername] = useState("");
-  const [errors, setErrors] = useState<FormErrors>({}); // 🧠 error state
+  const [errors, setErrors] = useState<FormErrors>({});
+  const [serverError, setServerError] = useState<string | null>(null);
   const router = useRouter();
 
   const handleSignup = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -31,6 +32,7 @@ const SignUpForm = () => {
     e.preventDefault();
 
     setErrors({});
+    setServerError(null);
 
     const result = signUpSchema.safeParse({ email, username, password });
 
@@ -68,6 +70,15 @@ const SignUpForm = () => {
     } catch (err) {
       setLoading(false);
       console.error("Signup failed:", err);
+      if (axios.isAxiosError(err)) {
+        const message =
+          err.response?.data?.message ||
+          err.response?.data?.error ||
+          "Signup failed. Please try again.";
+        setServerError(message);
+      } else {
+        setServerError("Signup failed. Please try again.");
+      }
     }
   };
 
@@ -107,6 +118,11 @@ const SignUpForm = () => {
           </p>
 
           <form onSubmit={handleSignup} className="space-y-6">
+            {serverError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">
+                {serverError}
+              </div>
+            )}
             {/* Username Field */}
             <div>
               <label className="block text-xs text-gray-700 mb-2">

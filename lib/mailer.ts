@@ -16,41 +16,48 @@ import { google } from "googleapis";
  * - Store in environment/secrets manager; avoid logging them.
  */
 
-const {
-  GOOGLE_CLIENT_ID,
-  GOOGLE_CLIENT_SECRET,
-  GOOGLE_REFRESH_TOKEN,
-  GOOGLE_REDIRECT_URI, // optional unless you’re running the auth flow to obtain tokens
-  ADMIN_EMAIL,
-} = process.env;
+// DEV: Configuration is validated lazily inside sendMail() so importing this
+// module does not throw when Google OAuth env vars are absent in local dev.
+// In production all four vars must be set or the first sendMail() call throws.
+function getMailConfig() {
+  const {
+    GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET,
+    GOOGLE_REFRESH_TOKEN,
+    GOOGLE_REDIRECT_URI,
+    ADMIN_EMAIL,
+  } = process.env;
 
-// Fail fast: clear error if any required env vars are missing
-if (
-  !GOOGLE_CLIENT_ID ||
-  !GOOGLE_CLIENT_SECRET ||
-  !GOOGLE_REFRESH_TOKEN ||
-  !ADMIN_EMAIL
-) {
-  throw new Error(
-    "Missing OAuth2 configuration. Ensure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN, and ADMIN_EMAIL are set.",
-  );
+  if (
+    !GOOGLE_CLIENT_ID ||
+    !GOOGLE_CLIENT_SECRET ||
+    !GOOGLE_REFRESH_TOKEN ||
+    !ADMIN_EMAIL
+  ) {
+    throw new Error(
+      "Missing OAuth2 configuration. Ensure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN, and ADMIN_EMAIL are set.",
+    );
+  }
+
+  // For refresh-only use, redirect URI is not required by google.auth.OAuth2 constructor.
+  // If you're actively exchanging auth codes (web flow), include the redirect URI.
+  const oAuth2Client = GOOGLE_REDIRECT_URI
+    ? new google.auth.OAuth2(
+        GOOGLE_CLIENT_ID,
+        GOOGLE_CLIENT_SECRET,
+        GOOGLE_REDIRECT_URI,
+      )
+    : new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
+
+  // Set long-lived refresh token
+  oAuth2Client.setCredentials({ refresh_token: GOOGLE_REFRESH_TOKEN });
+
+  return { oAuth2Client, ADMIN_EMAIL, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN };
 }
-
-// For refresh-only use, redirect URI is not required by google.auth.OAuth2 constructor.
-// If you’re actively exchanging auth codes (web flow), include the redirect URI.
-const oAuth2Client = GOOGLE_REDIRECT_URI
-  ? new google.auth.OAuth2(
-      GOOGLE_CLIENT_ID,
-      GOOGLE_CLIENT_SECRET,
-      GOOGLE_REDIRECT_URI,
-    )
-  : new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
-
-// Set long-lived refresh token
-oAuth2Client.setCredentials({ refresh_token: GOOGLE_REFRESH_TOKEN });
 
 // Helper: obtain a fresh access token safely
 async function getAccessToken(): Promise<string> {
+  const { oAuth2Client } = getMailConfig();
   try {
     // googleapis types can return string | null | undefined in { token }
     const res = await oAuth2Client.getAccessToken();
@@ -94,12 +101,15 @@ export async function sendMail({
   text?: string;
   html?: string;
 }) {
+  // Validate config (throws if missing env vars — caught by callers in dev)
+  const { ADMIN_EMAIL, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN } = getMailConfig();
+
   // Acquire a fresh access token for each send
   const accessToken = await getAccessToken();
 
   // Create transporter
   const transporter = nodemailer.createTransport({
-    // Nodemailer’s types sometimes don’t include `service` for OAuth2, but it works.
+    // Nodemailer's types sometimes don't include `service` for OAuth2, but it works.
     // Alternatively, use `host: "smtp.gmail.com", port: 465, secure: true`.
     service: "gmail",
     auth: {
